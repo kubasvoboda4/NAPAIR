@@ -419,29 +419,41 @@ def dataframe_to_mmcif(df: pl.DataFrame, include_validation: bool = False,
             validation_loop.add_row(row_values + ['?'])
     
 
-    num_unpaired = len(unpaired_df) if unpaired_df is not None else 0
-
     has_napasco = 'napasco' in df.columns
-    napasco_values = []
-    num_preferred = 0
-    num_of_concern = 0
-    num_not_applicable = 0
+    unpaired_rows = list(unpaired_df.iter_rows(named=True)) if unpaired_df is not None else []
 
-    if has_napasco:
-        for row in df.iter_rows(named=True):
-            v = row.get('napasco')
-            if v is None or v != v:  # None or NaN
-                num_not_applicable += 1
-            else:
-                napasco_values.append(v)
-                if v < 5:
-                    num_of_concern += 1
+    def _summary_values(pair_rows, num_pairs, num_unpaired):
+        """NAPASCO trimmed geometric mean and annotation counts for a set of pair rows."""
+        napasco_values = []
+        num_preferred = 0
+        num_of_concern = 0
+        num_not_applicable = 0
+
+        if has_napasco:
+            for row in pair_rows:
+                v = row.get('napasco')
+                if v is None or v != v:  # None or NaN
+                    num_not_applicable += 1
                 else:
-                    num_preferred += 1
+                    napasco_values.append(v)
+                    if v < 5:
+                        num_of_concern += 1
+                    else:
+                        num_preferred += 1
+
+        napasco_val = trimmed_geometric_mean(napasco_values)
+        return [
+            f"{napasco_val:.2f}" if napasco_val is not None else '.',
+            str(num_pairs),
+            str(num_preferred) if has_napasco else '.',
+            str(num_of_concern) if has_napasco else '.',
+            str(num_not_applicable) if has_napasco else '.',
+            str(num_unpaired),
+        ]
 
     overall_loop = block.init_mmcif_loop('_ndb_base_pair_overall.', [
         'entry_id',
-        'napasco_g',
+        'NAPASCO_global',
         'number_of_basepairs',
         'number_of_preferred',
         'number_of_of_concern',
@@ -449,18 +461,45 @@ def dataframe_to_mmcif(df: pl.DataFrame, include_validation: bool = False,
         'number_of_unpaired',
     ])
 
-    avg_napasco_val = trimmed_geometric_mean(napasco_values)
-    avg_napasco = f"{avg_napasco_val:.2f}" if avg_napasco_val is not None else '.'
+    overall_loop.add_row([pdbid] + _summary_values(
+        df.iter_rows(named=True), num_unique_pairs, len(unpaired_rows)))
 
-    overall_loop.add_row([
-        pdbid,
-        avg_napasco,
-        str(num_unique_pairs),
-        str(num_preferred) if has_napasco else '.',
-        str(num_of_concern) if has_napasco else '.',
-        str(num_not_applicable) if has_napasco else '.',
-        str(num_unpaired),
-    ])
+    # Per-model statistics
+    pair_rows_by_model = {}
+    for row in df.iter_rows(named=True):
+        pair_rows_by_model.setdefault(str(row.get('model', '?')), []).append(row)
+
+    unique_pairs_by_model = {}
+    for row in unique_pairs:
+        model = str(row.get('model', '?'))
+        unique_pairs_by_model[model] = unique_pairs_by_model.get(model, 0) + 1
+
+    unpaired_by_model = {}
+    for row in unpaired_rows:
+        model = str(row.get('model', '1'))
+        unpaired_by_model[model] = unpaired_by_model.get(model, 0) + 1
+
+    models = sorted(set(pair_rows_by_model) | set(unpaired_by_model),
+                    key=lambda m: (0, int(m), m) if m.isdigit() else (1, 0, m))
+
+    if models:
+        model_loop = block.init_mmcif_loop('_ndb_base_pair_overall_model.', [
+            'entry_id',
+            'PDB_model_num',
+            'NAPASCO_global_model',
+            'number_of_basepairs',
+            'number_of_preferred',
+            'number_of_of_concern',
+            'number_of_not_applicable',
+            'number_of_unpaired',
+        ])
+
+        for model in models:
+            model_loop.add_row([pdbid, model] + _summary_values(
+                pair_rows_by_model.get(model, []),
+                unique_pairs_by_model.get(model, 0),
+                unpaired_by_model.get(model, 0),
+            ))
 
     if unpaired_df is not None and len(unpaired_df) > 0:
         unpaired_loop = block.init_mmcif_loop('_ndb_base_unpaired_list.', [
@@ -476,7 +515,7 @@ def dataframe_to_mmcif(df: pl.DataFrame, include_validation: bool = False,
             'auth_seq_id',
         ])
 
-        for i, row in enumerate(unpaired_df.iter_rows(named=True)):
+        for i, row in enumerate(unpaired_rows):
             label_seq = row.get('label_seq_id')
             ins_code  = str(row.get('pdbx_PDB_ins_code') or '')
             unpaired_loop.add_row([
