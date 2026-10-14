@@ -88,7 +88,9 @@ def find_contacts(s: gemmi.Structure, sym: pdb_utils.StructureData, distance: fl
     """Finds contacting residues in structure `s` within `distance` Ångströms."""
     result_dfs: list[pl.DataFrame] = []
     for model_i ,model in enumerate(s):
-        ns = gemmi.NeighborSearch(model, s.cell, distance)
+        # No unit cell: with a cell, NeighborSearch matches periodic lattice images, yielding
+        # "contacts" between residues 20+ Å apart in the ASU. Symmetry is applied explicitly below.
+        ns = gemmi.NeighborSearch(model, gemmi.UnitCell(), distance)
         for n_ch, chain in enumerate(model):
             for n_res, residue in enumerate(chain):
                 if residue.name.upper() in _na_residues:

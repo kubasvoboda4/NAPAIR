@@ -101,45 +101,37 @@ def extract_auth_to_label_mapping_to_file(pdb_input: str, temp_file_path: str) -
             except:
                 return False
         
-        # Find the atom_site loop
-        atom_site_loop = block.find_loop('_atom_site.id')
-        if not atom_site_loop:
+        # Find the atom_site table ('?' prefix marks optional columns)
+        atom_site = block.find('_atom_site.', [
+            'auth_asym_id', 'auth_seq_id', 'label_asym_id', 'label_seq_id',
+            '?label_entity_id', '?label_comp_id'
+        ])
+        if not atom_site:
             return False
-        
-        # Get column indices
-        auth_asym_idx = atom_site_loop.find_tag('_atom_site.auth_asym_id')
-        auth_seq_idx = atom_site_loop.find_tag('_atom_site.auth_seq_id')
-        
-        label_asym_idx = atom_site_loop.find_tag('_atom_site.label_asym_id')
-        label_seq_idx = atom_site_loop.find_tag('_atom_site.label_seq_id')
-        label_entity_idx = atom_site_loop.find_tag('_atom_site.label_entity_id')
-        label_comp_idx = atom_site_loop.find_tag('_atom_site.label_comp_id')
-        
-        if auth_asym_idx == -1 or auth_seq_idx == -1 or label_asym_idx == -1 or label_seq_idx == -1:
-            return False
-        
+        has_entity, has_comp = atom_site.has_column(4), atom_site.has_column(5)
+
         # Extract unique mappings
         mapping = {}
-        
-        for row in atom_site_loop:
-            auth_asym = row[auth_asym_idx]
-            auth_seq = row[auth_seq_idx]
-            
+
+        for row in atom_site:
+            auth_asym = row.str(0)
+            auth_seq = row.str(1)
+
             # Create key
             key = f"{auth_asym}:{auth_seq}"
-            
+
             # Skip if already have this mapping
             if key in mapping:
                 continue
-            
+
             # Extract label values
             label_data = {
-                'label_asym_id': row[label_asym_idx] if label_asym_idx != -1 else auth_asym,
-                'label_seq_id': row[label_seq_idx] if label_seq_idx != -1 else auth_seq,
-                'label_entity_id': row[label_entity_idx] if label_entity_idx != -1 else '?',
-                'label_comp_id': row[label_comp_idx] if label_comp_idx != -1 else '?'
+                'label_asym_id': row.str(2),
+                'label_seq_id': row.str(3),
+                'label_entity_id': row.str(4) if has_entity else '?',
+                'label_comp_id': row.str(5) if has_comp else '?'
             }
-            
+
             # Clean up values
             for k, v in label_data.items():
                 if v == '' or v == '.' or v is None:
