@@ -23,6 +23,7 @@ Main scripts:
 * `pair_finding.py`: Finds near contacts in PDB structures — outputs any pairs which have atoms closer than 4.0 Å
 * `pairs.py`: Annotates pairs with the parameters
 * `apply_filter.py`: Filters pairs which satisfy the definitions in parameter-boundaries.csv
+* `compare_structures.py`: Compares basepairs of two structures (reference vs. model) and computes PPV, sensitivity, MCC and F1
 
 Other utilities:
 
@@ -33,6 +34,23 @@ Other utilities:
 All commands should be prefixed with `python` (or `/path/to/venv/bin/python`).
 
 Most script either take path to mmCIF files, or they accept PDB ID and download the files themselves. To avoid repeated downloads, `--pdbcache=/path/to/pdbcache` may be specified. The PDB cache can even be multiple directories — all are used for lookup, but only the last one will be modified if the structure isn't found.
+
+#### `compare_structures.py`
+
+Compares basepairs in a model against a reference structure (MCC = sqrt(PPV * STY), as in RNA-Puzzles). Accepts structure files, PDB IDs or `.csv`/`.parquet` outputs of `assign_in_structure.py`
+
+```sh
+compare_structures.py ./reference.cif ./model.cif --list
+
+$ compare_structures.py examples/6UFK-assembly1.cif examples/6UFK-assembly2.cif --chain-map C:A,D:B,F:E
+reference: examples/6UFK-assembly1.cif
+model:     examples/6UFK-assembly2.cif
+chains:    C->A, D->B, F->E (model->reference)
+category         TP   FP   FN    PPV    STY    MCC     F1
+all              29    2    1  0.935  0.967  0.951  0.951
+canonical        22    1    0  0.957  1.000  0.978  0.978
+non-canonical     7    1    1  0.875  0.875  0.875  0.875
+```
 
 #### `assign_in_structure.py`
 
