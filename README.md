@@ -11,6 +11,17 @@ Nucleic acid basepair processing scripts.
     - `python3 ./pairs.py 1EHZ_basepair.txt --output 1ehz_params.csv` - calculates all implemented parameters for all basepairs found by FR3D
     - `python3 ./pairs.py *_basepair.txt --output all_params.csv --pdbcache /downloads/structures/into/here` - same, but for many structures with a cache directory
 
+### Docker
+
+Alternatively, build and run in a container (no local Python setup needed):
+
+```sh
+docker build -t napair .
+docker run --rm -v "$PWD/work:/work" napair assign_in_structure.py /work/1bna.cif --out /work/out
+```
+
+Mount your input/output directory at `/work` and use absolute `/work/...` paths. Any script can be run this way (`pairs.py`, `apply_filter.py`, ...). The image already contains `cdf_files/` and `data/curated/`, so `--validation` works out of the box.
+
 ### Usage
 
 All script will output some documentation when started with the `--help` flag.

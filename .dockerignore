@@ -1,0 +1,10 @@
+.git
+.venv
+.vscode
+.idea
+__pycache__
+*.pyc
+.DS_Store
+export
+data/ndb-bp-ext*
+.env*
