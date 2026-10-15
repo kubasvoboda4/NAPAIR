@@ -135,7 +135,7 @@ def format_output(f: ty.Any, df: pl.DataFrame, format: str, header: bool, parame
     elif format == 'json':
         with open_file_maybe(f, 'wt') as io:
             io.write('{\n')
-            for pdbid, dfg in df.group_by('pdbid'):
+            for (pdbid,), dfg in df.group_by(['pdbid']):
                 io.write(f'  {jsoner.encode(pdbid)}: [\n')
                 for i, row in enumerate(json_lines(dfg, include_pdbid=False)):
                     if i > 0:
@@ -150,7 +150,13 @@ def format_output(f: ty.Any, df: pl.DataFrame, format: str, header: bool, parame
                 io.write(jsoner.encode(row))
                 io.write('\n')
     elif format == 'fr3d':
-        fr3d_write(f, None, df, detailed=True, only_once=False, comparison_column=False, additional_columns=[])
+        # fr3d writer expects the old short column names
+        fr3d_df = df.rename({
+            f'{new}{i}': f'{old}{i}'
+            for new, old in [('auth_asym_id', 'chain'), ('auth_comp_id', 'res'), ('auth_seq_id', 'nr'), ('label_alt_id', 'alt'), ('pdbx_PDB_ins_code', 'ins')]
+            for i in (1, 2)
+        })
+        fr3d_write(f, None, fr3d_df, detailed=True, only_once=False, comparison_column=False, additional_columns=[])
     elif format == 'mmcif':
         include_validation = 'rmsd' in df.columns or 'validation_dir' in parameter_columns
         mmcif_parser.write_dataframe_to_mmcif(f, df, include_validation, structure_path, unpaired_df)

@@ -1138,7 +1138,9 @@ def hbond_stats(
         assert d23 <= 1.8, f"atoms 2,3 not bonded: {atom2.name} {atom3.name} ({d23} > 1.8)"
 
     dist = atom1.pos.dist(atom2.pos)
-    assert dist < 20, f"atoms too far for H-bond: {dist} > 20 between {atom1.name} and {atom2.name}"
+    if dist >= 20:
+        # atoms too far apart to form an H-bond
+        return HBondStats(length=None, donor_angle=None, acceptor_angle=None)
 
     # Calculate angles using the get_angle function rewritten for Gemmi previously
     result = HBondStats(
