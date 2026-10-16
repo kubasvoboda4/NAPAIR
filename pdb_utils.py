@@ -125,6 +125,11 @@ class SymmetryOperation:
     rotation: np.ndarray
     translation: np.ndarray
 
+    @property
+    def is_identity(self) -> bool:
+        """Decided from the matrix, as the name can be spelled several ways (e.g. quoted '1_555')."""
+        return bool(np.allclose(self.rotation, np.eye(3)) and np.allclose(self.translation, 0))
+
 @dataclasses.dataclass
 class StructureData:
     assembly: list[SymmetryOperation]
@@ -154,8 +159,8 @@ def load_sym_data(file: Optional[Union[str | object]], pdb_id: Optional[str] = N
             for row in oper_list:
                 result.assembly.append(SymmetryOperation(
                     id=str(row['_pdbx_struct_oper_list.id']),
-                    pdbname=row['_pdbx_struct_oper_list.name'],
-                    triplet=row['_pdbx_struct_oper_list.symmetry_operation'],
+                    pdbname=gemmi.cif.as_string(row['_pdbx_struct_oper_list.name']),
+                    triplet=gemmi.cif.as_string(row['_pdbx_struct_oper_list.symmetry_operation']),
                     rotation=np.array([
                         [float(row['_pdbx_struct_oper_list.matrix[1][1]']), 
                          float(row['_pdbx_struct_oper_list.matrix[1][2]']), 

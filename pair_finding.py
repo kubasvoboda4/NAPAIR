@@ -96,7 +96,7 @@ def find_contacts(s: gemmi.Structure, sym: pdb_utils.StructureData, distance: fl
                         ns.add_atom(atom, n_ch, n_res, n_atom)
         result_dfs.append(_to_contact_df(ns, model, None, distance, s))
         for symop in sym.assembly:
-            if symop.pdbname != '1_555':
+            if not symop.is_identity:
                 result_dfs.append(_to_contact_df(ns, model, symop, distance, s))
     # Filter out schema-less empty DataFrames (returned when _to_contact_df finds no contacts)
     # to avoid a schema-mismatch error in pl.concat when mixing empty and non-empty results.
@@ -160,7 +160,7 @@ def _to_contact_df(ns: gemmi.NeighborSearch, model: gemmi.Model, sym: Optional[p
                     if atom_alt != '' and atom_alt != alt1:
                         continue
 
-                    if sym and sym.pdbname != '1_555':
+                    if sym and not sym.is_identity:
                         pos_array = np.array([atom.pos.x, atom.pos.y, atom.pos.z])
                         transformed = sym.rotation @ pos_array + sym.translation
                         search_pos = gemmi.Position(*transformed)
@@ -219,7 +219,7 @@ def _to_contact_df(ns: gemmi.NeighborSearch, model: gemmi.Model, sym: Optional[p
         model=pl.lit(int(model.name) if model.name else 1, pl.Int32),
         # The symop was applied to residue 1's atoms during contact finding (T(res1) ≈ res2),
         # so it belongs on residue 1, not residue 2.
-        symmetry_operation1=pl.lit(sym.pdbname if sym and sym.pdbname != '1_555' else None, pl.Utf8),
+        symmetry_operation1=pl.lit(sym.pdbname if sym and not sym.is_identity else None, pl.Utf8),
         symmetry_operation2=pl.lit(None, pl.Utf8),
         symmetry_id1=pl.lit(sym.id if sym else "1", pl.Utf8),
         symmetry_id2=pl.lit("1", pl.Utf8)
