@@ -308,12 +308,12 @@ def parser(parser = None):
     parser.add_argument('-f', '--format', type=str, default='csv,parquet,fr3d,json,mmcif', help='Output format(s) to generate. By default, all are selected. Supported formats are csv, parquet, fr3d, json, ndjson. One file per input structure will be created.')
     parser.add_argument('--verbose', action='store_true', help='Print verbose output')
     parser.add_argument('--min-atom-distance', type=float, default=4.0, help='Distance threshold between any residue atoms (in Ångströms)')
-    parser.add_argument('--boundaries', type=str, default='./parameter-boundaries.csv', help='URL/filepath to the boundaries CSV file')
+    parser.add_argument('--boundaries', type=str, default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parameter-boundaries.csv'), help='URL/filepath to the boundaries CSV file')
     parser.add_argument("--pdbcache", nargs="+", help="Directories to search for PDB files in order to avoid re-downloading. Last directory will be written to, if the structure is not found and has to be downloaded from RCSB. Also can be specified as PDB_CACHE_DIR env variable.")
     parser.add_argument("--best-fit", default='none', type=str, help="Only the best fitting family for each basepair is kept", choices=["none", "single-pair", "greedy-edges", "graph-edges"])
     parser.add_argument("--output-all", action='store_true', help="Output all pairs of nucleotides which are close enough. This can be useful for debugging the parameter boundaries to see why a specific pair was *not* assigned. Basepairs which would be assigned as such will have assigned=true.")
     parser.add_argument('--threads', type=para_utils.parse_thread_count, default=1, help='Number of threads, 0 for all, 50%% for half, -1 to leave one free, ... Parallelism only affects processing of multiple PDB files.')
-    parser.add_argument('--validation', nargs='?', const='./cdf_files/', default=None, help='Enable RMSD calculation, KNN-based validation scoring, and output curated dataset information. Optionally specify CDF models directory (default: ./cdf_files/)')
+    parser.add_argument('--validation', nargs='?', const=pairs.DEFAULT_CDF_DIR, default=None, help='Enable RMSD calculation, KNN-based validation scoring, and output curated dataset information. Optionally specify CDF models directory (default: cdf_files/ next to the scripts)')
     parser.add_argument('--basepair_id', type=str, help='Basepair id in format chain1_resnum1_chain2_resnum2')
 
     return parser

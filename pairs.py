@@ -735,6 +735,10 @@ class TranslationMetrics(PairMetric):
             return [ None ] * 3
         return list(ref.rotation.T @ (other.translation - ref.translation))
     
+# Resolved relative to this file, so validation works regardless of the current working directory
+DEFAULT_CDF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cdf_files")
+DEFAULT_CURATED_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "curated")
+
 class CuratedRMSDMetric(PairMetric):
     """
     Calculate RMSD between the observed base pair and curated, using only specific atoms:
@@ -746,7 +750,7 @@ class CuratedRMSDMetric(PairMetric):
     """
     results_cache = {}
 
-    def __init__(self, cdf_models_dir="./cdf_files/", use_knn_scoring=True, k_neighbors=5):
+    def __init__(self, cdf_models_dir=DEFAULT_CDF_DIR, use_knn_scoring=True, k_neighbors=5, curated_dir=DEFAULT_CURATED_DIR):
         self.columns = ["rmsd", "curated_file"]
         if use_knn_scoring:
             self.columns.extend(["napasco", "knn_metric"])
@@ -755,7 +759,11 @@ class CuratedRMSDMetric(PairMetric):
         self.use_knn_scoring = use_knn_scoring
         self.k_neighbors = k_neighbors
         self.cdf_models_dir = cdf_models_dir
+        self.curated_dir = curated_dir
         self.cdf_scorers = {}
+
+        if not os.path.isdir(curated_dir):
+            print(f"Warning: curated basepairs directory {curated_dir} not found, validation columns will be empty", file=sys.stderr)
         
         # Define the specific atoms we want to use
         self.purine_atoms = ["C1'", "N9", "C4", "C8"]
@@ -960,7 +968,7 @@ class CuratedRMSDMetric(PairMetric):
 
         validation_bp_class = bp_class
         
-        curated_dir = os.path.join("./data/curated", validation_bp_class)
+        curated_dir = os.path.join(self.curated_dir, validation_bp_class)
         
         if not os.path.exists(curated_dir):
             return [None, None] + ([None, None] if self.use_knn_scoring else [])
@@ -1068,7 +1076,7 @@ class StandardMetrics:
     YawPitchRoll2 = EulerAngleMetrics(["yaw2", "pitch2", "roll2"], get_C1_N_yaw_pitch_roll, 2)
     Translation1 = TranslationMetrics(1)
     Translation2 = TranslationMetrics(2)
-    CuratedRMSD = CuratedRMSDMetric(cdf_models_dir="./cdf_files/", use_knn_scoring=True, k_neighbors=5)
+    CuratedRMSD = CuratedRMSDMetric(use_knn_scoring=True, k_neighbors=5)
 
 def get_angle(atom1: gemmi.Atom, atom2: gemmi.Atom, atom3: gemmi.Atom) -> Optional[float]:
     """

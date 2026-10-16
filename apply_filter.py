@@ -277,7 +277,7 @@ def parser(parser = None):
     parser = parser or argparse.ArgumentParser(description="Filters RNA basepairs based on geometric boundaries.")
     parser.add_argument("inputs", nargs="+")
     parser.add_argument("--output", "-o", required=True)
-    parser.add_argument("--boundaries", type=str, default='./parameter-boundaries.csv')
+    parser.add_argument("--boundaries", type=str, default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'parameter-boundaries.csv'))
     parser.add_argument("--null-is-fine", default=True, action="store_true")
     parser.add_argument("--best-fit", default=None, choices=["none", "single-pair", "greedy-edges", "graph-edges"])
     parser.add_argument("--accepted-column", default=None)
