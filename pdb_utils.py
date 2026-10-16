@@ -156,11 +156,17 @@ def load_sym_data(file: Optional[Union[str | object]], pdb_id: Optional[str] = N
         if oper_list:
             tags = oper_list.tags
 
+            # .name and .symmetry_operation are optional in the category (gemmi's own writer omits .name);
+            # fall back to the operation id for the name and to an empty triplet.
+            has_name = '_pdbx_struct_oper_list.name' in tags
+            has_triplet = '_pdbx_struct_oper_list.symmetry_operation' in tags
+
             for row in oper_list:
+                op_id = gemmi.cif.as_string(row['_pdbx_struct_oper_list.id'])
                 result.assembly.append(SymmetryOperation(
-                    id=str(row['_pdbx_struct_oper_list.id']),
-                    pdbname=gemmi.cif.as_string(row['_pdbx_struct_oper_list.name']),
-                    triplet=gemmi.cif.as_string(row['_pdbx_struct_oper_list.symmetry_operation']),
+                    id=op_id,
+                    pdbname=gemmi.cif.as_string(row['_pdbx_struct_oper_list.name']) if has_name else op_id,
+                    triplet=gemmi.cif.as_string(row['_pdbx_struct_oper_list.symmetry_operation']) if has_triplet else '',
                     rotation=np.array([
                         [float(row['_pdbx_struct_oper_list.matrix[1][1]']), 
                          float(row['_pdbx_struct_oper_list.matrix[1][2]']), 
