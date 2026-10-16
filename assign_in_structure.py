@@ -222,6 +222,23 @@ def analyze_structure(pdbid: str, min_atom_distance: float, boundaries: pl.DataF
 
     return pdbid, df, all_residues_df
 
+def _unique_stem(out_dir: str, stem: str, formats: ty.List[str]) -> str:
+    """Returns `stem`, or `stem_1`, `stem_2`, ... for the first number where none of the output files (one per format) exist yet, so all formats of one run share the same name"""
+    candidate = stem
+    i = 0
+    while any(os.path.exists(os.path.join(out_dir, f'{candidate}.{fmt}')) for fmt in formats):
+        i += 1
+        candidate = f'{stem}_{i}'
+    return candidate
+
+def _output_name(structure: str, pdbid: str) -> str:
+    """Base name for output files: the input file's name for local files (the data_ block of a local file may be a placeholder such as XXXX), otherwise the PDB ID"""
+    if not os.path.isfile(structure):
+        return pdbid
+    name = os.path.basename(structure)
+    name = re.sub(r'(\.gz|\.zst)?$', '', name)
+    return os.path.splitext(name)[0]
+
 def main_structure(structure: str, boundaries: pl.DataFrame, out: str | None, format: str, best_fit: ty.Literal["none", "single-pair", "greedy-edges", "graph-edges"], output_all: bool, validation_dir: str | None = None, basepair_id: str | None = None):
     """Loads the structure file, performs assignment and writes results"""
     analyzed_struct = analyze_structure(structure, 4.0, boundaries, best_fit, output_all, validation_dir, basepair_id)
@@ -246,14 +263,12 @@ def main_structure(structure: str, boundaries: pl.DataFrame, out: str | None, fo
                         "C1_C1_yaw1", "C1_C1_pitch1", "C1_C1_roll1", 
                         "C1_C1_yaw2", "C1_C1_pitch2", "C1_C1_roll2"]
 
-    for fmt in format.split(','):
-        if basepair_id is not None:
-            try:
-                file = os.path.join(out or '.', f'{pdbid}-{basepair_id}.{fmt}')
-            except Exception as e:
-                eprint(f"Error saving {pdbid}-{basepair_id}.{fmt}: {e}")
-        else:
-            file = os.path.join(out or '.', f'{pdbid}.{fmt}')
+    out_name = _output_name(structure, pdbid)
+    stem = f'{out_name}-{basepair_id}' if basepair_id is not None else out_name
+    formats = format.split(',')
+    stem = _unique_stem(out or '.', stem, formats)
+    for fmt in formats:
+        file = os.path.join(out or '.', f'{stem}.{fmt}')
         format_output(file, df, fmt, True, param_columns, structure_path=structure, unpaired_df=unpaired_df)
 
 def main2(pool: multiprocessing.pool.Pool | para_utils.MockPool, threads: int, args):
