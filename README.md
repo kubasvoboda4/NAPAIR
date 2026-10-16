@@ -68,7 +68,7 @@ non-canonical     7    1    1  0.875  0.875  0.875  0.875
 Annotate pairs in a given structure (output all supported file formats)
 
 ```sh
-assign_in_structure.py ./1bna.cif --out ./outdir/
+assign_in_structure.py ./examples/6ROS.cif --out ./outdir/
 ```
 
 Annotates pairs in a large set of structures
@@ -80,13 +80,13 @@ assign_in_structure.py ~/pdb/**/*.cif --out ./outdir/ --threads=100% --format=pa
 Annotates specific basepair in given structure
 
 ```sh
-assign_in_structure.py 1bna --out ./outdir/ --basepair_id A_4_B_21
+assign_in_structure.py  ./example/6ROS.cif ./example--out ./outdir/ --basepair_id A_2_A_17
 ```
 
 Annotates and validates pairs in given structure
 
 ```sh
-assign_in_structure.py 1bna --out ./outdir/ --validation
+assign_in_structure.py ./example/6ROS.cif --out ./outdir/ --validation
 ```
 
 #### `pair_finding.py`
