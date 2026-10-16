@@ -1068,6 +1068,11 @@ class CuratedRMSDMetric(PairMetric):
                 
         return results
     
+@functools.lru_cache(maxsize=None)
+def get_curated_metric(cdf_models_dir: str = DEFAULT_CDF_DIR, curated_dir: str = DEFAULT_CURATED_DIR) -> "CuratedRMSDMetric":
+    """Returns a shared CuratedRMSDMetric, so the CDF pickles and curated structures are loaded once per process, not once per structure"""
+    return CuratedRMSDMetric(cdf_models_dir, use_knn_scoring=True, curated_dir=curated_dir)
+
 class StandardMetrics:
     Coplanarity = CoplanarityEdgeMetrics()
     Isostericity = IsostericityCoreMetrics()
@@ -1076,7 +1081,6 @@ class StandardMetrics:
     YawPitchRoll2 = EulerAngleMetrics(["yaw2", "pitch2", "roll2"], get_C1_N_yaw_pitch_roll, 2)
     Translation1 = TranslationMetrics(1)
     Translation2 = TranslationMetrics(2)
-    CuratedRMSD = CuratedRMSDMetric(use_knn_scoring=True, k_neighbors=5)
 
 def get_angle(atom1: gemmi.Atom, atom2: gemmi.Atom, atom3: gemmi.Atom) -> Optional[float]:
     """

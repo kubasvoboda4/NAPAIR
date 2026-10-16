@@ -217,7 +217,7 @@ def analyze_structure(pdbid: str, min_atom_distance: float, boundaries: pl.DataF
         df = pairs.remove_duplicate_pairs(df)
 
     if validation_dir is not None:
-        rmsd_metrics = [pairs.CuratedRMSDMetric(validation_dir, use_knn_scoring=True)]
+        rmsd_metrics = [pairs.get_curated_metric(validation_dir)]
         _, df, _ = pairs.make_stats_columns(pdbid, df, False, 4, rmsd_metrics, structure=structure)
 
     return pdbid, df, all_residues_df
