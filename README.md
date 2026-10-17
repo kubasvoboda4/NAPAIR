@@ -20,7 +20,7 @@ docker build -t napair .
 docker run --rm -v "$PWD/work:/work" napair assign_in_structure.py /work/1bna.cif --out /work/out
 ```
 
-Mount your input/output directory at `/work` and use absolute `/work/...` paths. Any script can be run this way (`pairs.py`, `apply_filter.py`, ...). The image already contains `cdf_files/` and `data/curated/`, so `--validation` works out of the box.
+Mount your input/output directory at `/work` and use absolute `/work/...` paths. Any script can be run this way (`pairs.py`, `apply_filter.py`, ...). The image already contains `cdf_files/`, `data/curated/` and the packed reference library `data/curated.npz`, so `--validation` works out of the box.
 
 ### Usage
 
@@ -39,6 +39,7 @@ Main scripts:
 Other utilities:
 
 * `simulate_fr3d_output.py`: Converts the Parquet table to FR3D-like text files.
+* `curated_pack.py`: Packs the curated reference pairs in `data/curated/` into `data/curated.npz` (see [Validation reference library](#validation-reference-library))
 
 ### Example commands
 
@@ -133,6 +134,19 @@ The parameter is optional (or can be specified `=none`) to avoid this filtering 
 ```bash
 apply_filter.py out/all.parquet -o "out/assignment.parquet" --best-fit=single-pair
 ```
+
+### Validation reference library
+
+`--validation` compares every annotated pair with the curated reference pairs of its class in `data/curated/` (RMSD, KNN metric and `napasco` score). The reference pairs are read from `data/curated.npz`, a packed binary file that holds, for each of the 4,718 references, the file name, the purine/pyrimidine flags and the coordinates of the four atoms used for the RMSD (C1', N9, C4, C8 for purines; C1', N1, C2, C6 for pyrimidines). Only the classes that occur in the analysed structure are read, and all references of a class are superimposed in one batched calculation. This gives the same results as parsing the mmCIF files (`curated_file`, `rmsd`, `napasco` and `knn_metric` are identical) and is about 1.3-1.4x faster end to end.
+
+If `data/curated.npz` is missing, the reference pairs are parsed from the mmCIF files in `data/curated/` instead, which is slower but gives the same output. The file is not checked against `data/curated/`, so **rebuild it whenever the curated files change**:
+
+```sh
+python curated_pack.py                              # data/curated/ -> data/curated.npz
+python curated_pack.py ./my-curated ./my-curated.npz   # custom directory
+```
+
+A custom curated directory is looked up as `<directory>.npz` next to it.
 
 ### License
 

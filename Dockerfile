@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY *.py *.csv ./
 COPY cdf_files ./cdf_files
 COPY data/curated ./data/curated
+COPY data/curated.npz ./data/curated.npz
 
 ENV PYTHONUNBUFFERED=1
 # Mount your structures/output at /work and use absolute paths, e.g. --out /work/out

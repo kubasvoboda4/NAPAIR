@@ -756,10 +756,15 @@ class CuratedRMSDMetric(PairMetric):
             self.columns.extend(["napasco", "knn_metric"])
         
         self.curated_cache = {}
+        self._class_files_cache = {}  # bp_class -> [(file name, path)]
+        self._reference_cache = {}    # curated path -> prepared atoms/coords, or None if unusable
+        self._pack = None             # lazily opened packed curated library (see curated_pack.py), False if unavailable
+        self._packed_classes = {}     # bp_class -> list of same-shape reference groups
         self.use_knn_scoring = use_knn_scoring
         self.k_neighbors = k_neighbors
         self.cdf_models_dir = cdf_models_dir
         self.curated_dir = curated_dir
+        self.pack_path = os.path.normpath(curated_dir) + ".npz"
         self.cdf_scorers = {}
 
         if not os.path.isdir(curated_dir):
@@ -928,9 +933,17 @@ class CuratedRMSDMetric(PairMetric):
         if len(cur1_atoms) == 0 or len(cur2_atoms) == 0 or len(r1_atoms) == 0 or len(r2_atoms) == 0:
             return float('inf')
 
-        def to_coords(atoms):
-            return np.array([[a.pos.x, a.pos.y, a.pos.z] for a in atoms], dtype=np.float64)
+        return self.calculate_basepair_rmsd_coords(
+            self.atoms_to_coords(cur1_atoms), self.atoms_to_coords(cur2_atoms),
+            self.atoms_to_coords(r1_atoms), self.atoms_to_coords(r2_atoms))
 
+    @staticmethod
+    def atoms_to_coords(atoms):
+        return np.array([[a.pos.x, a.pos.y, a.pos.z] for a in atoms], dtype=np.float64)
+
+    @staticmethod
+    def calculate_basepair_rmsd_coords(cur1_coords, cur2_coords, r1_coords, r2_coords):
+        """Same as calculate_basepair_rmsd, on precomputed (n, 3) coordinate arrays (all four non-empty)."""
         def kabsch(fixed, moving):
             """Kabsch algorithm: find R, t such that moving @ R + t ≈ fixed (row-vector convention)."""
             fc = fixed.mean(axis=0)
@@ -941,11 +954,6 @@ class CuratedRMSDMetric(PairMetric):
             R = U @ np.diag([1.0, 1.0, d]) @ Vt
             t = fc - mc @ R
             return R, t
-
-        cur1_coords = to_coords(cur1_atoms)
-        cur2_coords = to_coords(cur2_atoms)
-        r1_coords = to_coords(r1_atoms)
-        r2_coords = to_coords(r2_atoms)
 
         # 1. Superimpose base 1 (align r1 to cur1), apply transform to r2
         R, t = kabsch(cur1_coords, r1_coords)
@@ -962,19 +970,87 @@ class CuratedRMSDMetric(PairMetric):
         # 3. Average the RMSDs
         return (rmsd1 + rmsd2) / 2
 
+    def get_class_files(self, bp_class):
+        """Curated .cif files of a bp class as (name, path) pairs; the directory is listed once per class."""
+        files = self._class_files_cache.get(bp_class)
+        if files is None:
+            class_dir = os.path.join(self.curated_dir, bp_class)
+            names = [f for f in os.listdir(class_dir) if f.endswith('.cif')] if os.path.isdir(class_dir) else []
+            files = self._class_files_cache[bp_class] = [(f, os.path.join(class_dir, f)) for f in names]
+        return files
+
+    def get_reference(self, curated_path):
+        """Atoms, base types and coordinates of a curated pair, resolved once per file. None if it cannot be used."""
+        if curated_path not in self._reference_cache:
+            ref = None
+            try:
+                _, residues = self.load_curated(curated_path)
+                if len(residues) >= 2:
+                    cur1_atoms, cur1_type = self.get_specific_atoms(residues[0])
+                    cur2_atoms, cur2_type = self.get_specific_atoms(residues[1])
+                    if cur1_atoms and cur2_atoms:
+                        ref = (cur1_type, cur2_type, self.atoms_to_coords(cur1_atoms), self.atoms_to_coords(cur2_atoms))
+            except Exception as e:
+                print(f"Error processing curated {curated_path}: {e}")
+            self._reference_cache[curated_path] = ref
+        return self._reference_cache[curated_path]
+
+    def get_packed_class(self, bp_class):
+        """Reference groups of a bp class from the packed library: a list of (is_purine1, is_purine2, n1, n2, coords1 (B,n1,3), coords2 (B,n2,3), names (B,)).
+        References within a group share base types and atom counts so they can be superimposed in one batch. None if there is no packed library, [] if the class has no references."""
+        if self._pack is None:
+            self._pack = np.load(self.pack_path) if os.path.isfile(self.pack_path) else False
+        if self._pack is False:
+            return None
+        if bp_class not in self._packed_classes:
+            groups = []
+            if f"{bp_class}/names" in self._pack.files:
+                names, purine, counts, xyz = (self._pack[f"{bp_class}/{k}"] for k in ("names", "purine", "counts", "xyz"))
+                shapes = {}
+                for i in range(len(names)):
+                    shapes.setdefault((bool(purine[i, 0]), bool(purine[i, 1]), int(counts[i, 0]), int(counts[i, 1])), []).append(i)
+                for (p1, p2, n1, n2), idx in shapes.items():
+                    groups.append((p1, p2, n1, n2, xyz[idx, 0, :n1], xyz[idx, 1, :n2], names[idx]))
+            self._packed_classes[bp_class] = groups
+        return self._packed_classes[bp_class]
+
+    @staticmethod
+    def batched_basepair_rmsd(cur1, cur2, r1, r2):
+        """calculate_basepair_rmsd_coords for a batch of references: cur1 (B,n1,3) and cur2 (B,n2,3) against one observed pair r1 (n1,3), r2 (n2,3). Returns (B,) RMSDs."""
+        def aligned_rmsd(fixed, moving, other_fixed, other_moving):
+            fc = fixed.mean(axis=1, keepdims=True)
+            mc = moving.mean(axis=0)
+            H = np.einsum('ni,bnj->bij', moving - mc, fixed - fc)
+            U, _, Vt = np.linalg.svd(H)
+            d = np.sign(np.linalg.det(np.einsum('bji,bkj->bik', Vt, U)))
+            D = np.zeros_like(H)
+            D[:, 0, 0] = D[:, 1, 1] = 1.0
+            D[:, 2, 2] = d
+            R = np.einsum('bij,bjk,bkl->bil', U, D, Vt)
+            t = fc - np.einsum('i,bij->bj', mc, R)[:, None, :]
+            diff = other_fixed - (np.einsum('ni,bij->bnj', other_moving, R) + t)
+            return np.sqrt(np.sum(diff * diff, axis=(1, 2)) / other_fixed.shape[1])
+        return (aligned_rmsd(cur1, r1, cur2, r2) + aligned_rmsd(cur2, r2, cur1, r1)) / 2
+
+    def get_rmsds_packed(self, groups, r1_type, r2_type, r1_coords, r2_coords):
+        """(rmsd, curated name) for every usable reference of a class, best of direct and swapped orientation"""
+        out = []
+        for p1, p2, n1, n2, c1, c2, names in groups:
+            best = np.full(len(names), np.inf)
+            if (r1_type == "purine") == p1 and (r2_type == "purine") == p2 and len(r1_coords) == n1 and len(r2_coords) == n2:
+                best = self.batched_basepair_rmsd(c1, c2, r1_coords, r2_coords)
+            if (r1_type == "purine") == p2 and (r2_type == "purine") == p1 and len(r2_coords) == n1 and len(r1_coords) == n2:
+                best = np.minimum(best, self.batched_basepair_rmsd(c1, c2, r2_coords, r1_coords))
+            out.extend((float(r), str(n)) for r, n in zip(best, names) if np.isfinite(r))
+        return out
+
     def get_values(self, pair: PairInformation) -> Sequence[Optional[float]]:
         bp_type = pair.type
         bp_class = f"{bp_type.type}_{resname_map.get(pair.res1.resname, pair.res1.resname)}-{resname_map.get(pair.res2.resname, pair.res2.resname)}_{bp_type.subclass}"
 
-        validation_bp_class = bp_class
-        
-        curated_dir = os.path.join(self.curated_dir, validation_bp_class)
-        
-        if not os.path.exists(curated_dir):
-            return [None, None] + ([None, None] if self.use_knn_scoring else [])
+        packed = self.get_packed_class(bp_class)
+        curated_files = self.get_class_files(bp_class) if packed is None else packed
 
-        curated_files = [f for f in os.listdir(curated_dir) if f.endswith('.cif')]
-        
         if not curated_files:
             return [None, None] + ([None, None] if self.use_knn_scoring else [])
 
@@ -985,53 +1061,40 @@ class CuratedRMSDMetric(PairMetric):
         if not r1_atoms or not r2_atoms:
             return [None, None] + ([None, None] if self.use_knn_scoring else [])
 
+        r1_coords = self.atoms_to_coords(r1_atoms)
+        r2_coords = self.atoms_to_coords(r2_atoms)
+
         # Calculate RMSD against ALL curated basepairs
         rmsd_results = []  # List of (rmsd, curated_file)
 
-        for curated_file in curated_files:
-            curated_path = os.path.join(curated_dir, curated_file)
+        if packed is not None:
+            rmsd_results = self.get_rmsds_packed(packed, r1_type, r2_type, r1_coords, r2_coords)
+            curated_files = []  # the per-file path below is for the unpacked fallback
 
+        for curated_file, curated_path in curated_files:
+            ref = self.get_reference(curated_path)
+            if ref is None:
+                continue
+            cur1_type, cur2_type, cur1_coords, cur2_coords = ref
+
+            # Try both orientations (direct and swapped); take the better (lower) RMSD
             try:
-                # Load curated structure with caching
-                _, curated_residues = self.load_curated(curated_path)
-
-                if len(curated_residues) < 2:
-                    continue
-
-                cur1_atoms, cur1_type = self.get_specific_atoms(curated_residues[0])
-                cur2_atoms, cur2_type = self.get_specific_atoms(curated_residues[1])
-
-                if not cur1_atoms or not cur2_atoms:
-                    continue
-
-                # Try both orientations (direct and swapped)
-                rmsd_direct = None
-                rmsd_swapped = None
-
+                best_rmsd = None
                 if r1_type == cur1_type and r2_type == cur2_type:
                     # Direct mapping: r1->cur1, r2->cur2
-                    rmsd_direct = self.calculate_basepair_rmsd(cur1_atoms, cur2_atoms, r1_atoms, r2_atoms)
+                    best_rmsd = self.calculate_basepair_rmsd_coords(cur1_coords, cur2_coords, r1_coords, r2_coords)
 
                 if r1_type == cur2_type and r2_type == cur1_type:
                     # Swapped mapping: r1->cur2, r2->cur1
-                    rmsd_swapped = self.calculate_basepair_rmsd(cur1_atoms, cur2_atoms, r2_atoms, r1_atoms)
-
-                # Take the better (lower) RMSD
-                best_rmsd = None
-                if rmsd_direct is not None and rmsd_swapped is not None:
-                    best_rmsd = min(rmsd_direct, rmsd_swapped)
-                elif rmsd_direct is not None:
-                    best_rmsd = rmsd_direct
-                elif rmsd_swapped is not None:
-                    best_rmsd = rmsd_swapped
-
-                if best_rmsd is not None and best_rmsd != float('inf'):
-                    rmsd_results.append((best_rmsd, curated_file))
-
+                    rmsd_swapped = self.calculate_basepair_rmsd_coords(cur1_coords, cur2_coords, r2_coords, r1_coords)
+                    best_rmsd = rmsd_swapped if best_rmsd is None else min(best_rmsd, rmsd_swapped)
             except Exception as e:
                 print(f"Error processing curated {curated_path}: {e}")
                 continue
-        
+
+            if best_rmsd is not None and best_rmsd != float('inf'):
+                rmsd_results.append((best_rmsd, curated_file[:-4]))
+
         if not rmsd_results:
             return [None, None] + ([None, None] if self.use_knn_scoring else [])
         
@@ -1060,7 +1123,7 @@ class CuratedRMSDMetric(PairMetric):
         # Return results
         results = [
             lowest_rmsd if lowest_rmsd != float('inf') else None,
-            best_curated[:-4] if best_curated else None 
+            best_curated 
         ]
 
         if self.use_knn_scoring:
